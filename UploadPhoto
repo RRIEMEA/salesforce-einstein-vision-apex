@@ -1,0 +1,106 @@
+public with sharing class AI_UploadPhoto {
+
+    @AuraEnabled(cacheable =true)
+    public static void fileUploadCallout(String base64, String filename, String recordId, string externalTeacherId) {
+        string Endpoint = 'https://dev-api.easy-tutor.org/teachers/'+externalTeacherId+'/SFupdateProfile';
+        //string xAPIKey = '***********';
+        //string verticalId = '*******';
+        //string callbackURL = '**************';
+        system.debug('***URL: ' + Endpoint);
+        //List<contentversion> cvList = new List<contentversion>();
+        //cvList = [select id, title, ContentDocumentId, FileExtension, versionData from contentversion where Id = :idStr limit 1];
+        //System.debug('Callout Log 1:' + cvList);
+        //if(!cvList.isEmpty()) {
+            //form fileName with cv ID
+            //string fileName = cvList[0].Id;
+            //if(cvList[0].FileExtension!=null && cvList[0].FileExtension!='') {
+            //string fileName = filename; // + '.' + cvList[0].FileExtension;  
+            //}         
+            System.debug('Callout Log 2:' + filename);
+            
+            //callout ePOR service
+            string contentType = EinsteinVision_HttpBodyPart.GetContentType();
+            
+            //  Compose the form
+            string form64 = '';
+            //******This was the boundary I was missing****
+            form64 += EinsteinVision_HttpBodyPart.WriteBoundary();
+            form64 += EinsteinVision_HttpBodyPart.WriteBlobBodyParameter('files.photo', base64, filename);
+            
+            blob formBlob = EncodingUtil.base64Decode(form64);
+            string contentLength = string.valueOf(formBlob.size());
+            
+            System.debug('Callout Log 3:' + formBlob.size());
+            
+            if(formBlob.size()>12000000){
+                //this a "public class CustomException extends Exception{}"
+                //throw new CustomException('File size limit is 12 MBytes');
+            }
+            else {
+                HttpRequest req = new HttpRequest();
+                req.setMethod('POST');
+                req.setEndpoint(Endpoint);
+                req.setBodyAsBlob(formBlob);
+                //req.setHeader('apiKey', xAPIKey);
+                //req.setHeader('vertid', verticalId);
+                //req.setHeader('callback', callbackURL);
+                req.setHeader('Connection', 'keep-alive');
+                req.setHeader('Content-Length', contentLength);
+                req.setHeader('Content-Type', contentType);
+                req.setTimeout(120000);
+                Http http =new Http();
+                HTTPResponse res = http.send(req);
+                System.debug('Callout Log 4:' + res.getStatusCode());
+                System.debug('Callout Log 5:' + String.valueof(res.getbody()));
+            
+                string responseStatusCode = String.valueof(res.getStatusCode()); 
+                string responseBody = String.valueof(res.getbody()); 
+            }
+        //}
+    }
+
+    @AuraEnabled
+    public static String uploadFile(String base64, String filename, String recordId) {
+        ContentVersion cv = createContentVersion(base64, filename);
+        ContentDocumentLink cdl = createContentLink(cv.Id, recordId);
+        if (cv == null || cdl == null) { return null; }
+        return cdl.Id;
+    
+    
+    }
+
+    private static ContentVersion createContentVersion(String base64, String filename) {
+        ContentVersion cv = new ContentVersion();
+        cv.VersionData = EncodingUtil.base64Decode(base64);
+        cv.Title = filename;
+        cv.PathOnClient = filename;
+        try {
+          insert cv;
+          return cv;
+        } catch(DMLException e) {
+          System.debug(e);
+          return null;
+        }
+    }
+
+    private static ContentDocumentLink createContentLink(String contentVersionId, String recordId) {
+        if (contentVersionId == null || recordId == null) { return null; }
+        ContentDocumentLink cdl = new ContentDocumentLink();
+        cdl.ContentDocumentId = [
+        SELECT ContentDocumentId 
+        FROM ContentVersion 
+        WHERE Id =: contentVersionId
+        ].ContentDocumentId;
+        cdl.LinkedEntityId = recordId;
+        // ShareType is either 'V', 'C', or 'I'
+        // V = Viewer, C = Collaborator, I = Inferred
+        cdl.ShareType = 'V';
+        try {
+        insert cdl;
+        return cdl;
+        } catch(DMLException e) {
+        System.debug(e);
+        return null;
+        }
+        }
+}
